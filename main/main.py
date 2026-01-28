@@ -4,12 +4,14 @@ from datetime import date,datetime
 from typing import  Optional
 from pydantic import BaseModel,Field
 import requests
-from init_db import get_conn
+from init_db import get_conn,init_schema
+
+init_schema()
 
 # Add startup logging
-print("=== Expense Tracker MCP Server Starting ===", file=sys.stderr)
-print(f"Python path: {sys.executable}", file=sys.stderr)
-print(f"Working directory: {os.getcwd()}", file=sys.stderr)
+# print("=== Expense Tracker MCP Server Starting ===", file=sys.stderr)
+# print(f"Python path: {sys.executable}", file=sys.stderr)
+# print(f"Working directory: {os.getcwd()}", file=sys.stderr)
 
 mcp = FastMCP("Expense Tracker")
 CATEGORIES_PATH = os.path.join(os.path.dirname(__file__), "categories.json")
@@ -126,7 +128,6 @@ def list_categories(subcategories:bool = False)-> dict:
     }
 
 
-
 class FiltersSchema(BaseModel):
     amount_min:Optional[float] = Field(description="Minimum Amount  filter",default=None, ge=0)
     amount_max:Optional[float] = Field(description="Maximum Amount filter",default=None,ge=0)
@@ -220,11 +221,18 @@ def list_expenses(filters: FiltersSchema):
     if filters.currency in allowed_currencies:
         conditions.append("currency = %s")
         params.append(filters.currency)
+    
+    if len (params) == 1:
+        return {
+            "status": "error",
+            "error": "Need atleast 1 filter to list expenses"            
+        }
 
     if conditions:
         base_query += " AND " + " AND ".join(conditions)
 
     base_query += " ORDER BY expense_date DESC, amount DESC"
+
 
     cur.execute(base_query, tuple(params))
     rows = cur.fetchall()

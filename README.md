@@ -34,11 +34,11 @@ INR, AED, CAD, EUR, MYR, SEK, USD, AUD, CHF, GBP, JPY, PHP, SGD, ZAR, BRL, CNY, 
    ```bash
    psql
    ```
-2. Create User, Database, and Privileges
+2. Create User, Database, and Privileges. Please change the password.
 
    ```pgsql
-   -- Create the user
-   CREATE USER expense_user WITH PASSWORD 'password';
+   -- Create the user 
+   CREATE USER expense_user WITH PASSWORD 'your_password';
 
    -- Create the database with this user as owner
    CREATE DATABASE expense_db OWNER expense_user;
@@ -65,16 +65,25 @@ INR, AED, CAD, EUR, MYR, SEK, USD, AUD, CHF, GBP, JPY, PHP, SGD, ZAR, BRL, CNY, 
    uv sync
    ```
 
-### Running the MCP Server
+# Running the MCP Server
 
-5. Run with MCP Inspector
-   ```bash
-   uv run fastmcp dev main/main.py
-   ```
+1. Create the .env file. Make sure to change the password.
+
+```
+DBNAME="expense_db"
+USER="expense_user" 
+PASSWORD="your_password" 
+```
+
+2. Run with MCP Inspector
+
+```bash
+uv run fastmcp dev main/main.py
+```
 
 ### Integration with Claude
 
-Add the following configurations in you claude_desktop_config.json.
+If you directly want to integrate with claude. Don't create the .env file just pass the envirnment variables like below.Add the following configurations in you claude_desktop_config.json. Make sure to change the password.
 
 ```json
 {
@@ -88,7 +97,12 @@ Add the following configurations in you claude_desktop_config.json.
         "fastmcp",
         "run",
         "Absolute/path/to/your/main.py/file"
-      ]
+      ],
+      "env": {
+        "DB_NAME": "expense_db",
+        "DB_USER": "expense_user",
+        "DB_PASSWORD": "your_password"
+      }
     }
   }
 }

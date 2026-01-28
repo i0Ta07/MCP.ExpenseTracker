@@ -1,15 +1,17 @@
-import psycopg2,sys
+import psycopg2,sys,os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # For this to work each user has to configure the Postgres on their machine.
 # Better to ship a Docker container with PostgreSQL and your MCP server preconfigured.
 
-
 def get_conn():
     try:
         conn = psycopg2.connect(
-            dbname="expense_db",
-            user="expense_user",
-            password="Default@user07",
+            dbname=os.getenv("DB_NAME"),
+            user=os.getenv("DB_USER"), 
+            password=os.getenv("DB_PASSWORD"),
             host="localhost",
             port=5432
         )
@@ -76,4 +78,3 @@ def init_schema():
     conn.close()
     print("Schema initialized successfully.")
 
-init_schema()
