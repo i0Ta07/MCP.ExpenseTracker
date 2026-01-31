@@ -93,17 +93,33 @@ If you directly want to integrate with claude. Don't create the .env file just p
       "args": [
         "run",
         "--with",
-        "fastmcp,psycopg2-binary",
+        "fastmcp,psycopg2-binary,requests",
         "fastmcp",
         "run",
         "Absolute/path/to/your/main.py/file"
       ],
       "env": {
-        "DB_NAME": "expense_db",
-        "DB_USER": "expense_user",
-        "DB_PASSWORD": "your_password"
+  	"DB_NAME": "expense_db",
+  	"DB_USER": "expense_user",
+  	"DB_PASSWORD": "your_password",
+  	"DB_HOST": "localhost",
+  	"DB_PORT": "5432"
       }
     }
   }
 }
 ```
+
+### Future Updates
+
+- Add recurring expense table.
+- Add a boolean column for credit or debit transactions.
+- Convert the whole code from synchronous to asynchronous.
+- Add authenitcation and then deploy on cloud.
+- Add summary functions.
+- Add budget table (monthly, quaterly, half-yearly and yearly)
+- Configure Docker for local server.
+
+### Acknowledgments
+
+Built with [FastMCP](https://github.com/PrefectHQ/fastmcp)
