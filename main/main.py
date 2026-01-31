@@ -266,7 +266,7 @@ def update_expense(expense_id: int, data: ExpenseUpdateSchema):
     """ Update an expense """
     update_dict = {}
     allowed_fields = ['expense_date','original_amount','category','subcategory','description','currency']
-    updates = {k: v for k, v in data.model_dump(exclude_unset=True).items() if v is not None} # Only include fields sent by the client
+    updates = {k: v for k, v in data.model_dump(exclude_unset=True).items() if v is not None} # Only include fields that are not null.
     update_fields = list(set(allowed_fields) & set(updates.keys()))
     user_id = get_default_user_id()
     if len(update_fields) == 0:

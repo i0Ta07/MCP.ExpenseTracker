@@ -107,3 +107,12 @@ If you directly want to integrate with claude. Don't create the .env file just p
   }
 }
 ```
+
+### Future Updates
+
+- Add recurring expense table.
+- Add a boolean column for credit or debit transactions.
+- Convert the whole code from synchronous to asynchronous.
+- Add authenitcation and then deploy on cloud.
+- Add summary functions.
+- Add budget table (monthly, quaterly, half-yearly and yearly)
