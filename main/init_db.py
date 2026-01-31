@@ -19,62 +19,61 @@ def get_conn():
         return conn
     except Exception as e:
         print(f"Database connection failed: {e}", file=sys.stderr)
-        raise
+        raise RuntimeError(f"Database connection failed: {e}")
 
 def init_schema():
-    conn = get_conn()
-    cur = conn.cursor()
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                    
+                # Users table
+                cur.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id UUID PRIMARY KEY,
+                    email TEXT NOT NULL UNIQUE CHECK (email ~* '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$'),
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
+                """)
 
+                # Initialize Local User
+                cur.execute("""
+                    INSERT INTO users (id, email)
+                    VALUES (
+                        '00000000-0000-0000-0000-000000000001',
+                        'local@expense.tracker'
+                    )
+                    ON CONFLICT (id) DO NOTHING;
+                """)
 
-    # Users table
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS users (
-        id UUID PRIMARY KEY,
-        email TEXT NOT NULL UNIQUE CHECK (email ~* '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$'),
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-    """)
+                # Expenses table
+                cur.execute("""
+                CREATE TABLE IF NOT EXISTS expenses (
+                    id SERIAL PRIMARY KEY,
+                    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    expense_date DATE NOT NULL,
+                    original_amount NUMERIC(10,2) NOT NULL CHECK (original_amount > 0),
+                    currency CHAR(3) NOT NULL,
+                    base_amount NUMERIC(10,2) NOT NULL CHECK (base_amount > 0),
+                    category TEXT NOT NULL,
+                    subcategory TEXT,
+                    description TEXT,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()              
+                );
+                """)
 
-    # Initialize Local User
-    cur.execute("""
-        INSERT INTO users (id, email)
-        VALUES (
-            '00000000-0000-0000-0000-000000000001',
-            'local@expense.tracker'
-        )
-        ON CONFLICT (id) DO NOTHING;
-    """)
+                # Index for faster queries
+                cur.execute("""     
+                CREATE INDEX IF NOT EXISTS idx_expenses_user_category
+                ON expenses (user_id, category);
+                            
+                CREATE INDEX IF NOT EXISTS idx_expenses_user_date
+                ON expenses (user_id, expense_date);
+                            
+                CREATE INDEX IF NOT EXISTS idx_expenses_user_date_category
+                ON expenses (user_id, expense_date, category);
+                """)
 
-    # Expenses table
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS expenses (
-        id SERIAL PRIMARY KEY,
-        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        expense_date DATE NOT NULL,
-        amount NUMERIC(10,2) NOT NULL CHECK (amount > 0),
-        category TEXT NOT NULL,
-        subcategory TEXT,
-        description TEXT,
-        currency CHAR(3) NOT NULL DEFAULT 'INR',
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-                
-    );
-    """)
-
-    # Index for faster queries
-    cur.execute("""     
-    CREATE INDEX IF NOT EXISTS idx_expenses_user_category
-    ON expenses (user_id, category);
-                
-    CREATE INDEX IF NOT EXISTS idx_expenses_user_date
-    ON expenses (user_id, expense_date);
-                
-    CREATE INDEX IF NOT EXISTS idx_expenses_user_date_category
-    ON expenses (user_id, expense_date, category);
-    """)
-
-    conn.commit()
-    cur.close()
-    conn.close()
-    print("Schema initialized successfully.")
+                print("Schema initialized successfully.")
+    except Exception as e:
+        raise RuntimeError("Runtime Error on creating schema") from e # From e means When e occurs raise RuntimeError()
 

@@ -1,7 +1,8 @@
+from decimal import Decimal,ROUND_HALF_UP,InvalidOperation
 import sys,os
 from fastmcp import FastMCP
 from datetime import date,datetime
-from typing import  Optional
+from typing import  Optional,Literal,TypedDict
 from pydantic import BaseModel,Field
 import requests
 from init_db import get_conn,init_schema
@@ -14,83 +15,94 @@ init_schema()
 # print(f"Working directory: {os.getcwd()}", file=sys.stderr)
 
 mcp = FastMCP("Expense Tracker")
+
+# Choose the base currency from 'INR','AED','CAD','EUR','MYR','SEK','USD','AUD','CHF','GBP','JPY','PHP','SGD','ZAR','BRL','CNY','HKD','MXN','SAR','THB'
+BASE_CURRENCY = "INR"
+
 CATEGORIES_PATH = os.path.join(os.path.dirname(__file__), "categories.json")
 
 def  get_default_user_id()-> str:
     return '00000000-0000-0000-0000-000000000001'
 
-allowed_currencies = ['INR','AED','CAD','EUR','MYR','SEK','USD','AUD','CHF','GBP','JPY','PHP','SGD','ZAR','BRL','CNY','HKD','MXN','SAR','THB']
+# All the aggreagtion operations will be done on in base_amount. You can perform aggregation on original_amount only when grouped in a particular currency.
+class AddExpenseSchema(BaseModel):
+    expense_date:str = Field(description = "Date of expense in format YYYY-MM-DD")
+    original_amount:Decimal = Field(description = "Expense amount in the currency given by user.",max_digits=10, decimal_places=2, gt=0)
+    category:str = Field(description = "Category of the expense")
+    subcategory:Optional[str] = Field(description = "Subcategory of the expense", default=None)
+    description:Optional[str] = Field(description = "Description of the expense",default=None)
+    currency:Literal['INR','AED','CAD','EUR','MYR','SEK','USD','AUD','CHF','GBP','JPY','PHP','SGD','ZAR','BRL','CNY','HKD','MXN','SAR','THB'] = Field(description = "Currency of the original_amount given by the user")
 
 @mcp.tool()
-def add_expense(expense_date:str,amount:float,category:str,subcategory:str = "",description:str = "",currency:str = "INR"):
+def add_expense(expense : AddExpenseSchema):
     """Add an expense to the database"""
 
-    expense_date = expense_date.strip()
-    category = category.strip().lower() # In future easy to look up using category and subcategory if they are in lower case
-    subcategory = subcategory.strip().lower()
-    description = description.strip()
-    currency = currency.strip().upper()
-
     user_id = get_default_user_id()
-    conn = get_conn()
-    cur = conn.cursor()
-    try:
-        parsed_date = datetime.strptime(expense_date, "%Y-%m-%d").date()
-    except ValueError:
-        result = {
-            "status": "error",
-            "error": "Invalid date format. Use YYYY-MM-DD"
-        }
-     
-    if parsed_date > date.today():
-        result = {
-            "status": "error",
-            "error": "Future dates are not allowed"
-        }
+    columns = [ "user_id","original_amount", "currency"]
+    params = [ user_id,expense.original_amount,expense.currency]
+
+    if not expense.expense_date.strip():
+        raise ValueError("Date cannot be empty.")
+    else:
+        expense.expense_date = expense.expense_date.strip()
+        try:
+            parsed_date = datetime.strptime(expense.expense_date, "%Y-%m-%d").date()
+        except ValueError as e:
+            raise ValueError("Invalid date format. Use YYYY-MM-DD") from e # New exception from e
+        if parsed_date > date.today():
+            raise ValueError("Future dates are not allowed")
+        columns.append("expense_date")
+        params.append(expense.expense_date)
+
+        if expense.subcategory:
+            if not expense.subcategory.strip():
+                raise ValueError("Subcategory cannot be an empty string.")                
+            columns.append("subcategory")
+            params.append(expense.subcategory.strip().lower())            
+
+    if expense.description:
+        if not expense.description.strip():
+            raise ValueError("Desciption cannot be an empty string.") 
+        else:
+            columns.append("description")
+            params.append(expense.description.strip().lower())   
 
     # Perform Data Validation
-    if amount <= 0:
-        result =  {
-            "status": "error",
-            "error": "Amount must be greater than zero"
-        }    
-    if category == '':
-        result = {
-            "status": "error",
-            "error": "Category cannot be empty"            
-        }
-    if currency not in allowed_currencies :
-        result = {
-            "status":"error",
-            "error":"Currency can only be 3 letters like INR,USD etc or given currency is not supported"
-        }
+    if expense.currency != BASE_CURRENCY:
+        try:
+            response = convert_currency(expense.original_amount,expense.currency,BASE_CURRENCY)
+        except Exception as e:
+            raise RuntimeError((f"Currency conversion failed: {e}"))
+
+        base_amount = response["result"]
+    else:
+        base_amount = expense.original_amount
+    columns.append("base_amount")
+    params.append(base_amount)
+
+    if not expense.category.strip():
+        raise ValueError("Category cannot be empty" )
+    columns.append("category")
+    params.append(expense.category.strip().lower()) # In future easy to look up using category and subcategory if they are in lower case
+
+    placeholders = ", ".join(["%s"] * len(columns))
+    query = f"""
+        INSERT INTO expenses ({", ".join(columns)})
+        VALUES ({placeholders})
+        RETURNING id
+    """
+
     try:
-        cur.execute(
-            """
-            INSERT INTO expenses (user_id, expense_date, amount, category, subcategory, description, currency)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-            RETURNING id
-            """,
-            (user_id, expense_date, amount, category, subcategory, description, currency)
-        )
-
-        expense_id = cur.fetchone()[0] # Fetchone fetches only a single row from the result, since here the result only has one row it looks like (42,) and when [0] gets you the first column so we get 42 
-        conn.commit()
-
-        result = {
-            "status": "success",
-            "result":{"id": expense_id}
-        }
-
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(query, tuple(params))
+                expense_id = cur.fetchone()[0] # Fetchone fetches only a single row from the result, since here the result only has one row it looks like (42,) and when [0] gets you the first column so we get 42 
+                return {
+                    "status": "success",
+                    "result":{"id": expense_id}
+                }
     except Exception as e:
-        conn.rollback()
-        result = {
-            "status": "error",
-            "error": str(e)
-    }
-    cur.close()
-    conn.close()
-    return result
+        raise RuntimeError("Failed to create expense") from e
 
 
 @mcp.tool()
@@ -99,13 +111,21 @@ def list_categories(subcategories:bool = False)-> dict:
     List all the categories and subcategories inside the database
     """
     user_id = get_default_user_id()
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT DISTINCT category, subcategory FROM expenses WHERE user_id = %s ORDER BY category, subcategory;",
-        (user_id,)
-    )
-    data = cur.fetchall()
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT DISTINCT category, subcategory FROM expenses WHERE user_id = %s ORDER BY category, subcategory;",
+                    (user_id,)
+                )
+                data = cur.fetchall()
+    except Exception as e:
+        raise RuntimeError("Failed to create expense") from e
+    if not data:
+        return{
+        "status": "success",
+        "result":"No categories."            
+        }
     if subcategories:
         categories = {}
         for entry in data:
@@ -119,9 +139,6 @@ def list_categories(subcategories:bool = False)-> dict:
                     categories[category].append(subcat)
     else:
         categories = sorted(set(row[0] for row in data)) # flatten list: [('Food',), ('Travel',), ('Rent',)] to ['Food', 'Travel', 'Rent']
-    
-    cur.close()
-    conn.close()
     return {
         "status": "success",
         "result":{"categories":categories}
@@ -129,121 +146,102 @@ def list_categories(subcategories:bool = False)-> dict:
 
 
 class FiltersSchema(BaseModel):
-    amount_min:Optional[float] = Field(description="Minimum Amount  filter",default=None, ge=0)
-    amount_max:Optional[float] = Field(description="Maximum Amount filter",default=None,ge=0)
+    min_amount:Optional[float] = Field(description="Minimum Amount  filter",default=None, gt=0)
+    max_amount:Optional[float] = Field(description="Maximum Amount filter",default=None,gt=0)
     category:Optional[str] = Field(description="Category filter",default=None)
     subcategory:Optional[str] = Field(description="Subcategory filter",default=None)
-    expense_date_from:Optional[str] = Field(description="Start Date filter in format YYYY-MM-DD",default=None)
-    expense_date_to:Optional[str] = Field(description="End Date filter in format YYYY-MM-DD",default=None)
-    currency:Optional[str] = Field(description="Currency filter",default=None)
-
+    start_date:Optional[str] = Field(description="Start Date filter in format YYYY-MM-DD",default=None)
+    end_date:Optional[str] = Field(description="End Date filter in format YYYY-MM-DD",default=None)
+    currency:Optional[Literal['INR','AED','CAD','EUR','MYR','SEK','USD','AUD','CHF','GBP','JPY','PHP','SGD','ZAR','BRL','CNY','HKD','MXN','SAR','THB']] = Field(description="Currency filter",default=None)
 
 @mcp.tool()
 def list_expenses(filters: FiltersSchema):
     """
     Fetch candidate expense records for listing, update, or deletion.
     """
-    # Strip
-    if filters.category:
-        filters.category = filters.category.strip().lower()
-    if filters.subcategory:
-        filters.subcategory = filters.subcategory.strip().lower()
-    if filters.currency:
-        filters.currency = filters.currency.strip().upper()
-    if filters.expense_date_from:
-        filters.expense_date_from = filters.expense_date_from.strip()
-    if filters.expense_date_to:
-        filters.expense_date_to = filters.expense_date_to.strip()
     
-    if (filters.amount_max and filters.amount_min):
-        if (filters.amount_min < 0) or (filters.amount_max < 0):
-            return {
-                "status":"error",
-                "error":"Amount cannot be less than zero."
-            }
-        if (filters.amount_min > filters.amount_max):
-            return {
-                "status":"error",
-                "error":"Minimum amount cannot be larger than maximum amount"
-            }
+    if (filters.max_amount and filters.min_amount) and (filters.min_amount > filters.max_amount):
+            raise ValueError("Minimum amount cannot be larger than maximum amount")
     
-    if filters.expense_date_to and filters.expense_date_from:
+    if filters.end_date and filters.start_date:
+        filters.start_date = filters.start_date.strip()
+        filters.end_date = filters.end_date.strip()
         try:
-            parsed_expense_date_to = datetime.strptime(filters.expense_date_to , "%Y-%m-%d").date()
-            parsed_expense_date_from = datetime.strptime(filters.expense_date_from , "%Y-%m-%d").date()
-            if parsed_expense_date_from > parsed_expense_date_to:
-                return {
-                "status": "error",
-                "error": "expense_date_to cannot be smaller than expense_date_from"
-            }
-        except ValueError:
-            return {
-            "status": "error",
-            "error": "Invalid date format. Use YYYY-MM-DD"
-        }
+            parsed_end_date = datetime.strptime(filters.end_date , "%Y-%m-%d").date()
+            parsed_start_date = datetime.strptime(filters.start_date , "%Y-%m-%d").date()
+            if parsed_start_date > parsed_end_date:
+                raise ValueError("End date cannot be smaller than Start date")
+        except ValueError as e:
+            raise ValueError("Invalid date format. Use YYYY-MM-DD") from e
     
     user_id = get_default_user_id()
-    conn = get_conn()
-    cur = conn.cursor()
 
     base_query = """
-        SELECT id, expense_date, amount, category, subcategory, description, currency
+        SELECT id, expense_date, original_amount, base_amount, category, subcategory, description, currency
         FROM expenses
         WHERE user_id = %s
     """
     conditions = []
     params = [user_id]
 
-    if filters.amount_min is not None:
-        conditions.append("amount >= %s")
-        params.append(filters.amount_min)
+    if filters.min_amount is not None:
+        conditions.append("base_amount >= %s")
+        params.append(filters.min_amount)
 
-    if filters.amount_max is not None:
-        conditions.append("amount <= %s")
-        params.append(filters.amount_max)
+    if filters.max_amount is not None:
+        conditions.append("base_amount <= %s")
+        params.append(filters.max_amount)
 
+    # Search category and subcategory in lower cases.
     if filters.category:
         conditions.append("category = %s")
-        params.append(filters.category)
+        params.append(filters.category.strip().lower())
 
     if filters.subcategory:
         conditions.append("subcategory = %s")
-        params.append(filters.subcategory)
+        params.append(filters.subcategory.strip().lower())
 
-    if filters.expense_date_from:
+    if filters.start_date:
         conditions.append("expense_date >= %s")
-        params.append(filters.expense_date_from)
+        params.append(filters.start_date)
 
-    if filters.expense_date_to:
+    if filters.end_date:
         conditions.append("expense_date <= %s")
-        params.append(filters.expense_date_to)
+        params.append(filters.end_date)
     
-    if filters.currency in allowed_currencies:
+    if filters.currency:
         conditions.append("currency = %s")
         params.append(filters.currency)
     
     if len (params) == 1:
-        return {
-            "status": "error",
-            "error": "Need atleast 1 filter to list expenses"            
-        }
+        raise RuntimeError("Need atleast 1 filter to list expenses")
 
     if conditions:
         base_query += " AND " + " AND ".join(conditions)
 
-    base_query += " ORDER BY expense_date DESC, amount DESC"
+    base_query += " ORDER BY expense_date DESC, base_amount DESC"
 
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(base_query, tuple(params))
+                rows = cur.fetchall()
+                columns = [desc[0] for desc in cur.description]
+    except Exception as e:
+        raise RuntimeError("Failed to fetch expenses") from e
+    
+    if not rows:
+        return {
+            "status": "success",
+            "result": {
+                "count": 0,
+                "records": []
+            }
+        }
 
-    cur.execute(base_query, tuple(params))
-    rows = cur.fetchall()
     records = []
-    columns = [desc[0] for desc in cur.description]
     for row in rows:
         records.append(dict(zip(columns,row)))
-
-
-    cur.close()
-    conn.close()
 
     return {
         "status": "success",
@@ -253,69 +251,101 @@ def list_expenses(filters: FiltersSchema):
         }
     }
 
-    
+# Inherit Insert Schema
+class ExpenseUpdateSchema(AddExpenseSchema):
+    expense_date: Optional[str] = Field(description = "Date of expense in format YYYY-MM-DD",default=None)
+    original_amount: Optional[Decimal] = Field(description = "Expense amount in the currency given by user.",max_digits=10, decimal_places=2, gt=0,default=None)
+    category: Optional[str] = Field(description = "Category of the expense",default=None)
+    currency: Optional[
+        Literal['INR','AED','CAD','EUR','MYR','SEK','USD','AUD','CHF','GBP',
+                'JPY','PHP','SGD','ZAR','BRL','CNY','HKD','MXN','SAR','THB']
+    ] = Field(description = "Currency of the original_amount given by the user",default=None)
+
 @mcp.tool()
-def update_expense(expense_id:int,updates:dict):
-    """ Update an expense"""
+def update_expense(expense_id: int, data: ExpenseUpdateSchema):
+    """ Update an expense """
     update_dict = {}
-    allowed_fields = ['expense_date','amount','category','subcategory','description','currency']
-    for key,value in updates.items():
-        if key in allowed_fields:
-            if key == 'expense_date' and type(value) == str:
-                value = value.strip()
-                try:
-                    parsed_date = datetime.strptime(value, "%Y-%m-%d").date()
-                except ValueError:
-                    return {
-                        "status": "error",
-                        "error": "Invalid date format. Use YYYY-MM-DD in string format"
-                    }  
-                if parsed_date > date.today():
-                    return {
-                        "status": "error",
-                        "error": "Future dates are not allowed"
-                    }
-                update_dict[key] = value
-            elif key  == 'amount':
-                try:
-                    value= float(value)
-                except ValueError:
-                    return{
-                        "status": "error",
-                        "error": "Amount can only be float"                        
-                    }
-                update_dict[key] = value
-            elif key in ['category','subcategory','description']:
-                if type(value) == str and value != '':
-                    update_dict[key] = value.strip().lower()
-                else:
-                    return {
-                        "status":"error",
-                        "error":"Updates in category, subcategory and description only expects non-empty strings"
-                    }
-            elif key == 'currency' :
-                if value in allowed_currencies:
-                    update_dict[key] = value.strip().upper()
-                else: 
-                    return {
-                    "status":"error",
-                    "error":"Currency can only be 3 letters like INR,USD etc or given currency is not supported"
-                }
-        else:
-            return {
-                "status":"error",
-                "error":"You can only edit expense_date, amount, category, subcategory, description and currency"
-            }
+    allowed_fields = ['expense_date','original_amount','category','subcategory','description','currency']
+    updates = {k: v for k, v in data.model_dump(exclude_unset=True).items() if v is not None} # Only include fields sent by the client
+    update_fields = list(set(allowed_fields) & set(updates.keys()))
     user_id = get_default_user_id()
+    if len(update_fields) == 0:
+        raise RuntimeError("Either the updates dict is empty or given columns cannot be updated.")
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(f"SELECT {', '.join(update_fields)} FROM expenses WHERE id = %s AND user_id = %s",(expense_id,user_id))
+                row = cur.fetchone()
+                if not row:
+                    raise RuntimeError("No such record exists")
+    except Exception as e:
+        raise RuntimeError("Failed to fetch record") from e
+    db_record = dict(zip(update_fields, row))
+    for column in update_fields:
+            value = updates[column]
+            db_value = db_record[column]
+            if column == 'expense_date':
+                if value.strip():
+                    value = value.strip()
+                    if value == db_value:
+                        raise RuntimeError("Both stored and new date are same")
+                    try:
+                        parsed_date = datetime.strptime(value, "%Y-%m-%d").date()
+                    except ValueError as e:
+                        raise ValueError("Invalid date format. Use YYYY-MM-DD in string format") from e
+                    if parsed_date > date.today():
+                        raise ValueError("Future dates are not allowed")
+                    update_dict[column] = value
+                else:
+                    raise TypeError("Date can only be non empty string in YYYY-MM-DD format.")
+            elif column in ['category','subcategory','description']:
+                if value.strip():
+                    value = value.strip().lower()
+                    if value == db_value:
+                        raise RuntimeError(f"Both stored and new {column} are same")
+                    update_dict[column] = value
+                else:
+                    raise TypeError(f"{column} can only be a string")               
+            elif column  == 'original_amount' or column == 'currency':
+                if 'currency' not in update_fields:
+                    raise RuntimeError("You cannot update amount without provding the currency in updates")
+                elif 'original_amount' not in update_fields:
+                    raise RuntimeError("You cannot update currency without provding the original amount in updates" )
+                 
+                try:
+                    new_amount= Decimal(updates["original_amount"])
+                except InvalidOperation as e:
+                    raise InvalidOperation ("Amount can only be Decimal") from e
+                new_currency = updates['currency']
+                db_amount = db_record['original_amount']
+                db_currency = db_record['currency']
+                amount_changed = new_amount != db_amount
+                currency_changed = new_currency != db_currency
+                if not amount_changed and not currency_changed:
+                    raise RuntimeError("Both currency and amount are same as the values in the database")
+                if amount_changed:
+                    update_dict['original_amount'] = new_amount
 
-    if not update_dict:
-        return {
-            "status": "error",
-            "error": "No valid fields to update"
-        }
+                if currency_changed:
+                    update_dict['currency'] = new_currency
 
+                if amount_changed or currency_changed:
+                    effective_currency = new_currency
+                    effective_amount = new_amount
+
+                    if effective_currency != BASE_CURRENCY:
+                        try:
+                            response = convert_currency(effective_amount, effective_currency, BASE_CURRENCY)
+                        except Exception as e:
+                            raise RuntimeError(f"Currency conversion failed: {e}")
+                        update_dict["base_amount"] = response["result"]
+                    else:
+                        update_dict["base_amount"] = effective_amount
     set_clauses = []
     params = []
+
+    if not update_dict:
+        raise RuntimeError("No changes detected")
 
     for column, value in update_dict.items():
         set_clauses.append(f"{column} = %s")
@@ -326,19 +356,16 @@ def update_expense(expense_id:int,updates:dict):
         SET {', '.join(set_clauses)}
         WHERE id = %s AND user_id = %s
     """
-
     params.extend([expense_id, user_id])
 
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute(query, tuple(params))
-    conn.commit()
-
-    rows_affected = cur.rowcount
-
-    cur.close()
-    conn.close()
-
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(query, tuple(params))
+                rows_affected = cur.rowcount
+    except Exception as e:
+        raise RuntimeError("Update Failed") from e
+    
     return {
         "status": "success",
         "result":{
@@ -351,18 +378,17 @@ def update_expense(expense_id:int,updates:dict):
 def delete_expense(expense_id:int):
     """Delete an expense from database"""
     user_id = get_default_user_id()
-    conn = get_conn()
-    cur = conn.cursor()
-    query = """
-    DELETE FROM expenses WHERE user_id = %s AND id = %s;
-    """
-    cur.execute(query, (user_id,expense_id))
-    rows_affected = cur.rowcount
-    conn.commit()
-    cur.close()
-    conn.close()
+
+    query = "DELETE FROM expenses WHERE user_id = %s AND id = %s;"
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(query, (user_id,expense_id))
+                rows_affected = cur.rowcount
+    except Exception as e:
+        raise RuntimeError("Deletion failed") from e
     if rows_affected == 0:
-        return {"status":"error", "error":"No such expense record exists"}
+        raise RuntimeError("No such expense record exists")
     else:
         return {"status":"success", "result":{"rows_affected": rows_affected}}
 
@@ -370,17 +396,17 @@ def delete_expense(expense_id:int):
 def get_expense(expense_id:int):
     """Get an expense by id"""
     user_id = get_default_user_id()
-    conn = get_conn()
-    cur = conn.cursor()
-    query = """
-    SELECT expense_date,amount,category,subcategory,description,currency FROM expenses WHERE user_id = %s AND id = %s;
-    """
-    cur.execute(query, (user_id,expense_id))
-    row = cur.fetchone() # Get the entire row
-    cur.close()
-    conn.close()
+    query = "SELECT expense_date,base_amount,original_amount, category,subcategory,description,currency FROM expenses WHERE user_id = %s AND id = %s;"
+
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(query, (user_id,expense_id))
+                row = cur.fetchone() # Get the entire row
+    except Exception as e:
+        raise RuntimeError("Runtime error, cannot fetch expense")
     if row:
-        columns = [desc[0] for desc in cur.description] # (('expense_date', type_code, size...), ('amount', ...), ('category', ...))
+        columns = [desc[0] for desc in cur.description] # (('expense_date', type_code, size...), ('base_amount', ...), ('category', ...))
         record = dict(zip(columns, row))
         return {
             "status": "success",
@@ -389,43 +415,25 @@ def get_expense(expense_id:int):
             }
         }   
     else:
-        return {
-            "status": "error",
-            "error":"No such expense record exists"
-        } 
+        raise RuntimeError("No such expense record exists")
 
-@mcp.tool()
-def convert_currency(amount:float, target_currency:str,base_currency:str = 'INR'):
-    """Convert an amount from a base currency to a target currency."""
-    target_currency = target_currency.strip().upper()
-    base_currency = base_currency.strip().upper()
-    if target_currency not in allowed_currencies or base_currency not in allowed_currencies:
-        return {
-            "status":"error",
-            "error":"Currency not supported"
-        }
 
-    if amount <= 0:
-        return {
-            "status":"error",
-            "error":"Amount cannot be equal to less than zero"            
-        }
+def convert_currency(amount:Decimal, base_currency:str, target_currency:str):
+    """Convert an amount from a target currency to a base currency."""
     try:
         response = requests.get(f"https://open.er-api.com/v6/latest/{base_currency}",timeout=5)
-    except requests.exceptions.RequestException:
-        return{
-            "status":"error",
-            "result":"Request Failed"
-        }
+    except requests.exceptions.RequestException as r:
+        raise requests.exceptions.RequestException("Request Failed")
+
     if response.status_code != 200:
-        return {"status":"error", "error":"Bad Request"}
+        raise RuntimeError("Bad Request")
 
     data = response.json()
     try:
         rate = data["rates"][target_currency]
     except KeyError:
-        return {"status":"error", "error":f"Currency rate for {target_currency} not found"}
-    result = round(rate * amount,2)
+        raise KeyError(f"Currency rate for {target_currency} not found")
+    result = (Decimal(rate) * amount).quantize(Decimal("0.00"), rounding=ROUND_HALF_UP)
     return {
         "status":"success",
         "result":result
