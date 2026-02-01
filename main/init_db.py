@@ -12,8 +12,8 @@ def get_conn():
             dbname=os.getenv("DB_NAME"),
             user=os.getenv("DB_USER"), 
             password=os.getenv("DB_PASSWORD"),
-            host="localhost",
-            port=5432
+            host=os.getenv("DB_HOST", "localhost"),
+            port=int(os.getenv("DB_PORT", "5432"))
         )
         print("Database connection successful", file=sys.stderr)
         return conn

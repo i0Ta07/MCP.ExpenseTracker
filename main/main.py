@@ -62,7 +62,7 @@ def add_expense(expense : AddExpenseSchema):
 
     if expense.description:
         if not expense.description.strip():
-            raise ValueError("Desciption cannot be an empty string.") 
+            raise ValueError("Description cannot be an empty string.") 
         else:
             columns.append("description")
             params.append(expense.description.strip().lower())   
@@ -72,7 +72,7 @@ def add_expense(expense : AddExpenseSchema):
         try:
             response = convert_currency(expense.original_amount,expense.currency,BASE_CURRENCY)
         except Exception as e:
-            raise RuntimeError((f"Currency conversion failed: {e}"))
+            raise RuntimeError(f"Currency conversion failed: {e}")
 
         base_amount = response["result"]
     else:
@@ -120,7 +120,7 @@ def list_categories(subcategories:bool = False)-> dict:
                 )
                 data = cur.fetchall()
     except Exception as e:
-        raise RuntimeError("Failed to create expense") from e
+        raise RuntimeError("Failed to fetch categories") from e
     if not data:
         return{
         "status": "success",
@@ -266,7 +266,13 @@ def update_expense(expense_id: int, data: ExpenseUpdateSchema):
     """ Update an expense """
     update_dict = {}
     allowed_fields = ['expense_date','original_amount','category','subcategory','description','currency']
-    updates = {k: v for k, v in data.model_dump(exclude_unset=True).items() if v is not None} # Only include fields that are not null.
+    raw_data = data.model_dump(exclude_unset=True) # Do not include None field, if LLM sent null it will be included
+
+    updates = {}
+    # Remove Null values
+    for field, value in raw_data.items():
+        if value is not None:
+            updates[field] = value
     update_fields = list(set(allowed_fields) & set(updates.keys()))
     user_id = get_default_user_id()
     if len(update_fields) == 0:

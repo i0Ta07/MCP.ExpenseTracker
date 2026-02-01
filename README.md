@@ -99,9 +99,11 @@ If you directly want to integrate with claude. Don't create the .env file just p
         "Absolute/path/to/your/main.py/file"
       ],
       "env": {
-        "DB_NAME": "expense_db",
-        "DB_USER": "expense_user",
-        "DB_PASSWORD": "your_password"
+  	"DB_NAME": "expense_db",
+  	"DB_USER": "expense_user",
+  	"DB_PASSWORD": "your_password",
+  	"DB_HOST": "localhost",
+  	"DB_PORT": "5432"
       }
     }
   }
@@ -116,3 +118,4 @@ If you directly want to integrate with claude. Don't create the .env file just p
 - Add authenitcation and then deploy on cloud.
 - Add summary functions.
 - Add budget table (monthly, quaterly, half-yearly and yearly)
+- Configure Docker for local server.
