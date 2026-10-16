@@ -17,7 +17,7 @@ init_schema()
 mcp = FastMCP("Expense Tracker")
 
 # Choose the base currency from 'INR','AED','CAD','EUR','MYR','SEK','USD','AUD','CHF','GBP','JPY','PHP','SGD','ZAR','BRL','CNY','HKD','MXN','SAR','THB'
-BASE_CURRENCY = "INR"
+BASE_CURRENCY = os.getenv("BASE_CURRENCY")
 
 CATEGORIES_PATH = os.path.join(os.path.dirname(__file__), "categories.json")
 

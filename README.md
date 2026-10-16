@@ -1,6 +1,6 @@
 # Expense Tracker MCP
 
-A FastMCP-based server for managing personal expenses, with full CRUD operations and currency conversion support. Designed to integrate with Claude Desktop or other LLM clients.
+A FastMCP-based server for managing personal expenses, with full CRUD operations and currency conversion support. Designed to integrate with Claude Desktop or other LLM clients. All the data resides on your machine.
 
 ---
 
@@ -34,6 +34,7 @@ INR, AED, CAD, EUR, MYR, SEK, USD, AUD, CHF, GBP, JPY, PHP, SGD, ZAR, BRL, CNY, 
    ```bash
    psql
    ```
+
 2. Create User, Database, and Privileges. Please change the password.
 
    ```pgsql
@@ -53,11 +54,13 @@ INR, AED, CAD, EUR, MYR, SEK, USD, AUD, CHF, GBP, JPY, PHP, SGD, ZAR, BRL, CNY, 
    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO expense_user;
    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO expense_user;
    ```
+
 3. Clone the repository
 
    ```bash
    git clone https://github.com/i0Ta07/MCP.ExpenseTracker
    ```
+
 4. Install uv and sync dependencies.
 
    ```bash
@@ -65,21 +68,22 @@ INR, AED, CAD, EUR, MYR, SEK, USD, AUD, CHF, GBP, JPY, PHP, SGD, ZAR, BRL, CNY, 
    uv sync
    ```
 
-# Running the MCP Server
+## Running the MCP Server
 
-1. Create the .env file. Make sure to change the password.
+1. Create the .env file. Make sure to change the password and base currency.
 
-```
-DBNAME="expense_db"
-USER="expense_user" 
-PASSWORD="your_password" 
-```
+   ```text
+   DBNAME="expense_db"
+   USER="expense_user" 
+   PASSWORD="your_password" 
+   BASE_CURRENCY="INR"
+   ```
 
 2. Run with MCP Inspector
 
-```bash
-uv run fastmcp dev main/main.py
-```
+   ```bash
+   uv run fastmcp dev main/main.py
+   ```
 
 ### Integration with Claude
 
@@ -91,22 +95,23 @@ If you directly want to integrate with claude. Don't create the .env file just p
       "Expense Tracker": {
       "command": "uv",
       "args": [
-        "run",
-        "--with",
-        "fastmcp,psycopg2-binary,requests",
-        "fastmcp",
-        "run",
-        "Absolute/path/to/your/main.py/file"
+         "run",
+         "--with",
+         "fastmcp,psycopg2-binary,requests",
+         "fastmcp",
+         "run",
+         "Absolute\\path\\to\\main\\main.py"
       ],
       "env": {
-  	"DB_NAME": "expense_db",
-  	"DB_USER": "expense_user",
-  	"DB_PASSWORD": "your_password",
-  	"DB_HOST": "localhost",
-  	"DB_PORT": "5432"
+         "DB_NAME": "expense_db",
+         "DB_USER": "expense_user",
+         "DB_PASSWORD": "your_password",
+         "DB_HOST": "localhost",
+         "DB_PORT": "5432",
+         "BASE_CURRENCY": "INR"
+         }
       }
-    }
-  }
+   }
 }
 ```
 
